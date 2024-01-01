@@ -22,11 +22,20 @@ export class EDAAppStack extends cdk.Stack {
       publicReadAccess: false,
     });
 
-    // Integration infrastructure
+    // Queues
+    const badImagesQueue = new sqs.Queue(this, "bad-img-queue", {
+      retentionPeriod: cdk.Duration.minutes(30)
+    })
 
     const imageProcessQueue = new sqs.Queue(this, "img-created-queue", {
       receiveMessageWaitTime: cdk.Duration.seconds(10),
+      deadLetterQueue:{
+        queue: badImagesQueue,
+        maxReceiveCount: 2
+      }
     });
+
+
 
     //SNS topic
 
@@ -59,6 +68,13 @@ export class EDAAppStack extends cdk.Stack {
       entry: `${__dirname}/../lambdas/mailer.ts`,
     });
 
+    const rejectionMailerFn = new lambdanode.NodejsFunction(this, "rejection-mailer-function", {
+      runtime: lambda.Runtime.NODEJS_16_X,
+      memorySize: 1024,
+      timeout: cdk.Duration.seconds(3),
+      entry: `${__dirname}/../lambdas/rejectionMailer.ts`,
+    });
+
     // Event triggers
 
     imagesBucket.addEventNotification(
@@ -71,7 +87,13 @@ export class EDAAppStack extends cdk.Stack {
       maxBatchingWindow: cdk.Duration.seconds(10),
     });
 
+    const failedImageEventSource = new events.SqsEventSource(badImagesQueue, {
+      batchSize: 5,
+      maxBatchingWindow: cdk.Duration.seconds(10),
+    })
+
     processImageFn.addEventSource(newImageEventSource);
+    rejectionMailerFn.addEventSource(failedImageEventSource);
 
     // Subscribe function directly to topic
     newImageTopic.addSubscription(new subs.LambdaSubscription(mailerFn))    //https://rahullokurte.com/how-to-use-aws-sns-with-lambda-subscriptions-in-publisher-subscriber-messaging-systems-using-cdk
@@ -91,7 +113,19 @@ export class EDAAppStack extends cdk.Stack {
         resources: ["*"],
       })
     );
-
+    
+    rejectionMailerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "ses:SendEmail",
+          "ses:SendRawEmail",
+          "ses:SendTemplatedEmail",
+        ],
+        resources: ["*"],
+      })
+    );
+    
 
     // Output
 

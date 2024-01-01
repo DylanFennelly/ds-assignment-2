@@ -14,27 +14,37 @@ export const handler: SQSHandler = async (event) => {
   console.log("Event ", event);
   for (const record of event.Records) {
     const recordBody = JSON.parse(record.body);
-    console.log('Raw SNS message ',JSON.stringify(recordBody))
-    if (recordBody.Records) {
-      for (const messageRecord of recordBody.Records) {
+    console.log('Record body ',JSON.stringify(recordBody))
+
+    //recordBody does not contain records, Message does
+    const snsMessage = JSON.parse(recordBody.Message)
+    console.log('Raw SNS message ', JSON.stringify(snsMessage))
+
+    if (snsMessage.Records) {
+      for (const messageRecord of snsMessage.Records) {
         const s3e = messageRecord.s3;
         const srcBucket = s3e.bucket.name;
         // Object key may have spaces or unicode non-ASCII characters.
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
+        console.log('srcKey ', JSON.stringify(srcKey))
         // Infer the image type from the file suffix.
         const typeMatch = srcKey.match(/\.([^.]*)$/);
+
         if (!typeMatch) {
           console.log("Could not determine the image type.");
           throw new Error("Could not determine the image type. ");
         }
         // Check that the image type is supported
         const imageType = typeMatch[1].toLowerCase();
+        console.log('imageType', imageType)
         if (imageType != "jpeg" && imageType != "png") {
           console.log(`Unsupported image type: ${imageType}`);
           throw new Error("Unsupported image type: ${imageType. ");
         }
         // process image upload 
       }
+    }else{
+      console.log('No records in record body')
     }
   }
 };
