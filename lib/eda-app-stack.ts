@@ -57,6 +57,10 @@ export class EDAAppStack extends cdk.Stack {
       new subs.SqsSubscription(imageProcessQueue)
     );
 
+    const deleteImageTopic = new sns.Topic(this, "DeleteImageTopic", {
+      displayName: "Delete Image topic"
+    })
+
     // Lambda functions
 
     const processImageFn = new lambdanode.NodejsFunction(
@@ -66,6 +70,22 @@ export class EDAAppStack extends cdk.Stack {
         // architecture: lambda.Architecture.ARM_64,
         runtime: lambda.Runtime.NODEJS_18_X,
         entry: `${__dirname}/../lambdas/processImage.ts`,
+        timeout: cdk.Duration.seconds(15),
+        memorySize: 128,
+        environment: {
+          TABLE_NAME: imagesTable.tableName,
+          REGION: 'eu-west-1',
+        },
+      }
+    );
+
+    const deleteImageFn = new lambdanode.NodejsFunction(
+      this,
+      "DeleteImageFn",
+      {
+        // architecture: lambda.Architecture.ARM_64,
+        runtime: lambda.Runtime.NODEJS_18_X,
+        entry: `${__dirname}/../lambdas/deleteImage.ts`,
         timeout: cdk.Duration.seconds(15),
         memorySize: 128,
         environment: {
@@ -96,6 +116,11 @@ export class EDAAppStack extends cdk.Stack {
       new s3n.SnsDestination(newImageTopic)
     );
 
+    imagesBucket.addEventNotification(
+      s3.EventType.OBJECT_REMOVED,
+      new s3n.SnsDestination(deleteImageTopic)
+    )
+
     const newImageEventSource = new events.SqsEventSource(imageProcessQueue, {
       batchSize: 5,
       maxBatchingWindow: cdk.Duration.seconds(10),
@@ -111,6 +136,7 @@ export class EDAAppStack extends cdk.Stack {
 
     // Subscribe function directly to topic
     newImageTopic.addSubscription(new subs.LambdaSubscription(mailerFn))    //https://rahullokurte.com/how-to-use-aws-sns-with-lambda-subscriptions-in-publisher-subscriber-messaging-systems-using-cdk
+    deleteImageTopic.addSubscription(new subs.LambdaSubscription(deleteImageFn))
 
     // Permissions
 
@@ -141,6 +167,7 @@ export class EDAAppStack extends cdk.Stack {
     );
     
     imagesTable.grantReadWriteData(processImageFn)
+    imagesTable.grantReadWriteData(deleteImageFn)
 
     // Output
 
