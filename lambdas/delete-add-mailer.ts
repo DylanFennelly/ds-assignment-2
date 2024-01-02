@@ -39,7 +39,7 @@ export const handler: DynamoDBStreamHandler = async (event: any) => {
                 const { name, email, message, subject }: ContactDetails = {
                     name: "The Photo Album",
                     email: SES_EMAIL_FROM,
-                    message: `Your image '${imageName} has been successfully processed! Its URI is s3://${process.env.BUCKET_NAME}/${imageName}`,
+                    message: `Your image '${imageName}' has been successfully processed! Its URI is s3://${process.env.BUCKET_NAME}/${imageName}`,
                     subject: "New Image Upload"
                 };
                 const params = sendEmailParams({ name, email, message, subject });
@@ -60,7 +60,7 @@ export const handler: DynamoDBStreamHandler = async (event: any) => {
                 const { name, email, message, subject }: ContactDetails = {
                     name: "The Photo Album",
                     email: SES_EMAIL_FROM,
-                    message: `Your image '${imageName} has been successfully updated!<br><br>
+                    message: `Your image '${imageName}' has been successfully updated!<br><br>
                     The new image description is:<br>
                     "${imageDesc}"\n<br><br>
                     Its URI is s3://${process.env.BUCKET_NAME}/${imageName}`,
@@ -87,7 +87,7 @@ export const handler: DynamoDBStreamHandler = async (event: any) => {
                 const { name, email, message, subject }: ContactDetails = {
                     name: "The Photo Album",
                     email: SES_EMAIL_FROM,
-                    message: `Your image '${imageName} has been successfully deleted.`,
+                    message: `Your image '${imageName}' has been successfully deleted.`,
                     subject: "Image Deleted"
                 };
                 const params = sendEmailParams({ name, email, message, subject });
