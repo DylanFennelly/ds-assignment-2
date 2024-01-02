@@ -49,17 +49,10 @@ export class EDAAppStack extends cdk.Stack {
 
     //SNS topic
 
-    const newImageTopic = new sns.Topic(this, "NewImageTopic", {
-      displayName: "New Image topic",
+    const imageEventTopic = new sns.Topic(this, "ImageEventTopic", {
+      displayName: "Image Event topic",
     }); 
 
-    newImageTopic.addSubscription(
-      new subs.SqsSubscription(imageProcessQueue)
-    );
-
-    const updateImageTopic = new sns.Topic(this, "UpdateImageTopic", {
-      displayName: "Update Image topic"
-    })
 
     // Lambda functions
 
@@ -129,12 +122,12 @@ export class EDAAppStack extends cdk.Stack {
 
     imagesBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
-      new s3n.SnsDestination(newImageTopic)
+      new s3n.SnsDestination(imageEventTopic)
     );
 
     imagesBucket.addEventNotification(
       s3.EventType.OBJECT_REMOVED,
-      new s3n.SnsDestination(updateImageTopic)
+      new s3n.SnsDestination(imageEventTopic)
     )
 
     const newImageEventSource = new events.SqsEventSource(imageProcessQueue, {
@@ -151,10 +144,39 @@ export class EDAAppStack extends cdk.Stack {
     rejectionMailerFn.addEventSource(failedImageEventSource);
 
     // Subscriptions
-    newImageTopic.addSubscription(new subs.LambdaSubscription(mailerFn))    //https://rahullokurte.com/how-to-use-aws-sns-with-lambda-subscriptions-in-publisher-subscriber-messaging-systems-using-cdk
-    updateImageTopic.addSubscription(new subs.LambdaSubscription(deleteImageFn))
+    imageEventTopic.addSubscription(
+      new subs.SqsSubscription(imageProcessQueue, {
+        filterPolicyWithMessageBody: {
+          Records: sns.FilterOrPolicy.policy({                                                          //https://www.youtube.com/watch?v=36iMOJQUAuE
+            eventName: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({                  //https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_sns.FilterOrPolicy.html
+              matchPrefixes: ['ObjectCreated']
+            }))
+          })
+        }
+      })
+    );
 
-    updateImageTopic.addSubscription(new subs.LambdaSubscription(updateImageFn, {
+    imageEventTopic.addSubscription(new subs.LambdaSubscription(mailerFn, {         //https://rahullokurte.com/how-to-use-aws-sns-with-lambda-subscriptions-in-publisher-subscriber-messaging-systems-using-cdk
+      filterPolicyWithMessageBody: {
+        Records: sns.FilterOrPolicy.policy({
+          eventName: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({
+            matchPrefixes: ['ObjectCreated']
+          }))
+        })
+      }
+    }))    
+    
+    imageEventTopic.addSubscription(new subs.LambdaSubscription(deleteImageFn, {
+      filterPolicyWithMessageBody: {
+        Records: sns.FilterOrPolicy.policy({
+          eventName: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({
+            matchPrefixes: ['ObjectRemoved']
+          }))
+        })
+      }
+    }))
+
+    imageEventTopic.addSubscription(new subs.LambdaSubscription(updateImageFn, {
       filterPolicy: {
         eventType: sns.SubscriptionFilter.stringFilter({
           allowlist: ['UpdateImage']
@@ -201,7 +223,7 @@ export class EDAAppStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, "topicARN", {
-      value: updateImageTopic.topicArn,
+      value: imageEventTopic.topicArn,
     });
   }
 }
