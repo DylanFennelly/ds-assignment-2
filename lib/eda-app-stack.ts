@@ -36,16 +36,14 @@ export class EDAAppStack extends cdk.Stack {
       }
     });
 
-
     //DynamoDB Table
     const imagesTable = new dynamodb.Table(this, "imagesTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: "ImageName", type: dynamodb.AttributeType.STRING },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,                                 
+      removalPolicy: cdk.RemovalPolicy.DESTROY,   
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,                         //image before and after update are sent to the stream  - https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_StreamSpecification.html    
       tableName: "Images",                                                     
     })
-
-
 
     //SNS topic
 
@@ -104,18 +102,21 @@ export class EDAAppStack extends cdk.Stack {
       }
     );
 
-    const mailerFn = new lambdanode.NodejsFunction(this, "mailer-function", {
-      runtime: lambda.Runtime.NODEJS_16_X,
-      memorySize: 1024,
-      timeout: cdk.Duration.seconds(3),
-      entry: `${__dirname}/../lambdas/mailer.ts`,
-    });
-
     const rejectionMailerFn = new lambdanode.NodejsFunction(this, "rejection-mailer-function", {
       runtime: lambda.Runtime.NODEJS_16_X,
       memorySize: 1024,
       timeout: cdk.Duration.seconds(3),
       entry: `${__dirname}/../lambdas/rejectionMailer.ts`,
+    });
+
+    const deleteAddMailerFn = new lambdanode.NodejsFunction(this, "delete-add-mailer-function", {
+      runtime: lambda.Runtime.NODEJS_16_X,
+      memorySize: 1024,
+      timeout: cdk.Duration.seconds(3),
+      entry: `${__dirname}/../lambdas/delete-add-mailer.ts`,
+      environment: {
+        BUCKET_NAME: imagesBucket.bucketName,
+      },
     });
 
     // Event triggers
@@ -143,6 +144,10 @@ export class EDAAppStack extends cdk.Stack {
     processImageFn.addEventSource(newImageEventSource);
     rejectionMailerFn.addEventSource(failedImageEventSource);
 
+    deleteAddMailerFn.addEventSource(new events.DynamoEventSource(imagesTable, {      //https://dev.to/aws-builders/how-to-trigger-an-aws-lambda-from-a-dynamodb-stream-event-d8
+      startingPosition: lambda.StartingPosition.LATEST    
+    }))
+
     // Subscriptions
     imageEventTopic.addSubscription(
       new subs.SqsSubscription(imageProcessQueue, {
@@ -156,16 +161,6 @@ export class EDAAppStack extends cdk.Stack {
       })
     );
 
-    imageEventTopic.addSubscription(new subs.LambdaSubscription(mailerFn, {         //https://rahullokurte.com/how-to-use-aws-sns-with-lambda-subscriptions-in-publisher-subscriber-messaging-systems-using-cdk
-      filterPolicyWithMessageBody: {
-        Records: sns.FilterOrPolicy.policy({
-          eventName: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({
-            matchPrefixes: ['ObjectCreated']
-          }))
-        })
-      }
-    }))    
-    
     imageEventTopic.addSubscription(new subs.LambdaSubscription(deleteImageFn, {
       filterPolicyWithMessageBody: {
         Records: sns.FilterOrPolicy.policy({
@@ -176,9 +171,9 @@ export class EDAAppStack extends cdk.Stack {
       }
     }))
 
-    imageEventTopic.addSubscription(new subs.LambdaSubscription(updateImageFn, {
+    imageEventTopic.addSubscription(new subs.LambdaSubscription(updateImageFn, {        //https://rahullokurte.com/how-to-use-aws-sns-with-lambda-subscriptions-in-publisher-subscriber-messaging-systems-using-cdk
       filterPolicy: {
-        eventType: sns.SubscriptionFilter.stringFilter({
+        eventType: sns.SubscriptionFilter.stringFilter({      
           allowlist: ['UpdateImage']
         })
       }
@@ -188,7 +183,7 @@ export class EDAAppStack extends cdk.Stack {
 
     imagesBucket.grantRead(processImageFn);
 
-    mailerFn.addToRolePolicy(
+    deleteAddMailerFn.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: [
